@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Labelling Tool — CRM ASR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Bengali:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500;600&family=Noto+Sans+Kannada:wght@400;500;600&family=Noto+Sans+Telugu:wght@400;500;600&family=Noto+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=4" />
+</head>
+<body>
+  <!-- Remote Login View (hidden when authenticated or on true localhost) -->
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-card">
+      <h1>Labelling Tool</h1>
+      <p class="muted">Customer call recordings require an authorized account for remote access.</p>
+      <form id="login-form" class="login-form">
+        <label>
+          <span>Username</span>
+          <input id="login-username" type="text" autocomplete="username" required />
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+        </label>
+        <div id="login-error" class="form-error hidden"></div>
+        <button type="submit" class="btn btn-accent">Sign in</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Single-Screen Workspace -->
+  <div id="app-shell" class="app-shell hidden">
+    <header class="top-bar">
+      <div class="top-left">
+        <button id="btn-drawer-toggle" class="btn-icon mobile-only" title="Toggle call list" aria-label="Toggle call list">☰</button>
+        <span class="brand">Labelling</span>
+
+        <select id="filter-state" aria-label="Filter by state" title="Filter by state">
+          <option value="all">State: All</option>
+        </select>
+
+        <select id="filter-lang" aria-label="Filter by language" title="Filter by language">
+          <option value="all">Language: All</option>
+        </select>
+
+        <select id="filter-source" aria-label="Filter by source" title="Filter by source">
+          <option value="all">Source: All</option>
+          <option value="crm">CRM calls</option>
+          <option value="old">Old calls</option>
+        </select>
+
+        <select id="filter-status" aria-label="Filter by status" title="Filter by status">
+          <option value="ready">Status: Ready (has text)</option>
+          <option value="unverified">Status: Unverified left</option>
+          <option value="partial">Status: In progress</option>
+          <option value="complete">Status: Complete ✓</option>
+          <option value="verified">Status: Has verified</option>
+          <option value="no_draft">Status: No draft yet</option>
+          <option value="not_cut">Status: Not cut yet</option>
+          <option value="flagged">Status: Flagged</option>
+          <option value="all">Status: All calls</option>
+        </select>
+
+        <div class="search-wrap">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <input id="filter-search" type="search" placeholder="call id / lead / piece" aria-label="Search call id" />
+        </div>
+      </div>
+
+      <div class="top-right">
+        <button id="btn-progress" class="progress-pill" title="Open per-language progress and model WER table">
+          <span class="progress-track"><span id="top-progress-fill" class="progress-fill"></span></span>
+          <span id="top-progress-text" class="tabular">0.0 / 0.0 h verified</span>
+        </button>
+
+        <div id="lang-hours-bar" class="lang-hours-bar" aria-label="Verified hours by language"></div>
+
+        <button id="btn-import" class="btn btn-quiet" title="Import new Kaggle results zip or folder">Import</button>
+        <button id="btn-split" class="btn btn-quiet" title="Audio overlap check and lead-grouped train/test split">Split</button>
+        <button id="btn-guide" class="btn btn-quiet" title="Spelling guide (?)">Guide ?</button>
+        <button id="btn-theme" class="btn-icon" title="Toggle light / dark theme" aria-label="Toggle theme">◐</button>
+
+        <div class="user-menu">
+          <button id="btn-user" class="user-pill" title="Account"></button>
+        </div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+
+      <!-- Left Call List (280 px) -->
+      <aside id="call-sidebar" class="call-sidebar" aria-label="Call list">
+        <div class="sidebar-head">
+          <span id="call-count-summary" class="muted meta-text tabular">Loading…</span>
+          <select id="sort-calls" class="mini-select" title="Sort order" aria-label="Sort calls">
+            <option value="resume">Resume first</option>
+            <option value="id">Call ID</option>
+            <option value="duration">Longest</option>
+          </select>
+        </div>
+        <div id="call-list" class="call-list"></div>
+        <div id="call-list-footer" class="call-list-footer hidden">
+          <button id="btn-load-more" class="btn btn-quiet full-w">Load more calls</button>
+        </div>
+      </aside>
+
+      <!-- Main Call & Pieces Area -->
+      <main id="call-area" class="call-area">
+        <div id="empty-state" class="empty-state hidden">
+          <p id="empty-state-msg">Select a call to begin labelling.</p>
+          <button id="btn-clear-filters" class="btn btn-quiet hidden">Clear filters</button>
+        </div>
+
+        <div id="call-view" class="call-view hidden">
+          <!-- Sticky Call Header + Whole-Call Waveform + Player Bar -->
+          <div id="call-sticky-top" class="call-sticky-top">
+            <!-- Call Header -->
+            <div id="call-header" class="call-header"></div>
+
+            <!-- Whole-Call Waveform + Player Bar -->
+            <section class="player-panel">
+              <div class="waveform-wrap">
+                <canvas id="waveform-canvas" height="68"></canvas>
+                <div id="waveform-hover" class="waveform-hover hidden tabular">00:00</div>
+              </div>
+              <div class="player-bar">
+                <button id="btn-play" type="button" class="btn btn-accent btn-play" title="Play / Pause (Space)">▶</button>
+                <span id="player-time" class="player-time tabular">00:00 / 00:00</span>
+
+                <div class="mode-toggle" role="group" aria-label="Playback scope">
+                  <button id="btn-mode-piece" type="button" class="mode-btn active" title="Play active piece">Piece</button>
+                  <button id="btn-mode-call" type="button" class="mode-btn" title="Play whole call">Call</button>
+                </div>
+
+                <button id="btn-back2" type="button" class="btn btn-quiet" title="Step back 2 s (←)">⟲ 2s</button>
+
+                <div class="speed-ctrl" title="Playback speed (0.5×–2.0×, [ / ] shortcuts)">
+                  <span class="meta-text speed-label">Speed</span>
+                  <button id="btn-speed-down" type="button" class="speed-step-btn" title="Slower 0.1× ([)" aria-label="Decrease speed">−</button>
+                  <input id="speed-slider" type="range" min="0.5" max="2.0" step="0.05" value="1.0" aria-label="Playback speed" />
+                  <button id="btn-speed-up" type="button" class="speed-step-btn" title="Faster 0.1× (])" aria-label="Increase speed">+</button>
+                  <span id="speed-val" class="tabular speed-val">1.00×</span>
+                  <div class="speed-presets" role="group" aria-label="Speed presets">
+                    <button type="button" class="speed-preset-btn" data-speed="0.75">0.75×</button>
+                    <button type="button" class="speed-preset-btn active" data-speed="1">1×</button>
+                    <button type="button" class="speed-preset-btn" data-speed="1.25">1.25×</button>
+                    <button type="button" class="speed-preset-btn" data-speed="1.5">1.5×</button>
+                    <button type="button" class="speed-preset-btn" data-speed="2">2×</button>
+                  </div>
+                </div>
+
+                <button id="btn-boost" type="button" class="btn btn-quiet" title="Volume boost (+gain & gentle leveling)">🔊 Boost</button>
+                <button id="btn-loop" type="button" class="btn btn-quiet" title="Loop current piece (L)">🔁 Loop</button>
+                <button id="btn-opus" type="button" class="btn btn-quiet" title="Stream 24 kbps Opus (4× less mobile data)">Opus</button>
+              </div>
+              <audio id="audio-el" preload="auto"></audio>
+            </section>
+          </div>
+
+          <!-- Pieces List (only current piece open) -->
+          <section id="pieces-container" class="pieces-container" aria-label="Call pieces"></section>
+
+          <!-- Folded Whole-Call Reference Card (Old calls only) -->
+          <section id="reference-card" class="reference-card hidden">
+            <button id="btn-toggle-ref" class="fold-toggle">
+              <span class="caret">▸</span> Reference (whole-call text)
+            </button>
+            <div id="reference-body" class="reference-body hidden"></div>
+          </section>
+        </div>
+      </main>
+
+      <!-- Docked Spelling Guide Drawer (never covers the text boxes) -->
+      <aside id="guide-drawer" class="guide-drawer hidden" aria-label="Spelling guide">
+        <div class="drawer-head">
+          <h2>Spelling Guide</h2>
+          <div class="drawer-actions">
+            <button id="btn-guide-edit" class="btn btn-quiet">Edit</button>
+            <button id="btn-guide-save" class="btn btn-accent hidden">Save</button>
+            <button id="btn-guide-cancel" class="btn btn-quiet hidden">Cancel</button>
+            <button id="btn-guide-close" class="btn-icon" title="Close guide (?)">✕</button>
+          </div>
+        </div>
+        <div id="guide-view" class="guide-body"></div>
+        <textarea id="guide-editor" class="guide-editor hidden" spellcheck="false"></textarea>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Confirmation Dialog (used ONLY for "Mark as unverified?") -->
+  <div id="confirm-overlay" class="modal-overlay hidden">
+    <div class="modal-card modal-sm">
+      <h3 id="confirm-title">Mark as unverified?</h3>
+      <p id="confirm-desc" class="muted">This removes the piece from the verified training export until verified again.</p>
+      <div class="modal-actions">
+        <button id="btn-confirm-cancel" class="btn btn-quiet">Cancel</button>
+        <button id="btn-confirm-ok" class="btn btn-danger">Mark as unverified</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress & Model Error Rate Modal -->
+  <div id="progress-overlay" class="modal-overlay hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-head">
+        <h2>Progress &amp; Model Error Rate</h2>
+        <div class="modal-head-actions">
+          <button id="btn-backup-now" class="btn btn-quiet" title="Create hot SQLite snapshot now">Backup DB</button>
+          <button class="btn-icon modal-close" data-close="progress-overlay">✕</button>
+        </div>
+      </div>
+      <div id="progress-content" class="modal-body">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Import Kaggle Session Modal -->
+  <div id="import-overlay" class="modal-overlay hidden">
+    <div class="modal-card modal-md">
+      <div class="modal-head">
+        <h2>Import Kaggle Transcripts</h2>
+        <button class="btn-icon modal-close" data-close="import-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">Add a new <code>sessionN_results.zip</code> or <code>.jsonl</code>. Only unverified pieces get new drafts; verified pieces never change.</p>
+        <div class="import-box">
+          <label class="field-label">Upload results file (.zip, .jsonl, .jsonl.gz)</label>
+          <div class="row-gap">
+            <input id="import-file" type="file" accept=".zip,.jsonl,.gz" />
+            <button id="btn-import-upload" class="btn btn-accent">Upload &amp; Sync</button>
+          </div>
+        </div>
+        <div class="import-box">
+          <label class="field-label" for="import-path">Or paste a local file / folder path on this laptop</label>
+          <div class="row-gap">
+            <input id="import-path" type="text" placeholder="C:\Users\...\session2_results.zip" />
+            <button id="btn-import-path" class="btn btn-quiet">Import Path</button>
+          </div>
+        </div>
+        <div id="import-result" class="status-box hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Split & Audio Overlap Check Modal -->
+  <div id="split-overlay" class="modal-overlay hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-head">
+        <h2>Audio Overlap Check &amp; Train/Test Split</h2>
+        <button class="btn-icon modal-close" data-close="split-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">Step 1 checks if any old-dataset <code>.m4a/.mp3</code> call matches a CRM call by audio content. Step 2 splits verified calls by <code>lead_id</code> + overlap group (~15% test stratified per language, pinning <code>old_split=test</code> to test).</p>
+        <div class="split-controls">
+          <button id="btn-check-overlaps-verified" class="btn btn-quiet">Check Verified Overlaps (fast)</button>
+          <button id="btn-check-overlaps-all" class="btn btn-quiet">Full Library Overlap Scan</button>
+          <label class="inline-field">
+            <span>Test ratio</span>
+            <input id="split-ratio" type="number" min="0.05" max="0.45" step="0.01" value="0.15" />
+          </label>
+          <button id="btn-preview-split" class="btn btn-quiet">Preview Split</button>
+          <button id="btn-apply-split" class="btn btn-accent">Apply Split to Verified Export</button>
+        </div>
+        <div id="split-status-box" class="modal-subbody">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User / Admin Modal -->
+  <div id="user-overlay" class="modal-overlay hidden">
+    <div class="modal-card modal-md">
+      <div class="modal-head">
+        <h2>Account &amp; Remote Reviewers</h2>
+        <button class="btn-icon modal-close" data-close="user-overlay">✕</button>
+      </div>
+      <div id="user-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=5"></script>
+</body>
+</html>
