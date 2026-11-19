@@ -1962,6 +1962,15 @@
     }
   });
 
+  // Expose API for automated labelling scripts and tests
+  window.__labellingApp = {
+    state,
+    openPiece,
+    selectCall,
+    verifyCurrentPiece,
+    skipPiece
+  };
+
   (async function boot() {
     applyTheme(localStorage.getItem(LS.theme) || "light");
     try {
